@@ -25,6 +25,17 @@
 </head>
 <body>
     <div id="game">
+<div id="hud" style="position:fixed;bottom:0;left:0;right:0;z-index:1000;
+    background:rgba(255,255,255,.96);border-top:1px solid #ddd;
+    padding:10px 16px;display:flex;align-items:center;gap:16px;
+    font:14px system-ui,sans-serif;">
+    <span id="status">Раунд 1 / 5 — клікніть на карті, де це місце</span>
+    <button id="btn" style="margin-left:auto;padding:8px 18px;font-size:14px;
+        border:none;border-radius:8px;background:#2c7fb8;color:#fff;cursor:pointer;">
+        Перевірити
+    </button>
+    <span id="score">Рахунок: 0</span>
+</div>
         <div class="panel">
             <div id="satellite"></div>
         </div>
@@ -99,13 +110,100 @@
     // тимчасово
     let debugMarker = null;
 
-    function newRound() {
+    // === маркери ===
+    const guessIcon = L.divIcon({
+        className: '',
+        html: '<div style="width:18px;height:18px;border-radius:50%;' +
+              'background:#2c7fb8;border:3px solid #fff;box-shadow:0 0 4px rgba(0,0,0,.5);"></div>',
+        iconSize: [18, 18], iconAnchor: [9, 9]
+    });
+    const answerIcon = L.divIcon({
+        className: '',
+        html: '<div style="width:18px;height:18px;border-radius:50%;' +
+              'background:#e6261f;border:3px solid #fff;box-shadow:0 0 4px rgba(0,0,0,.5);"></div>',
+        iconSize: [18, 18], iconAnchor: [9, 9]
+    });
+
+    const HIT_RADIUS = 150;        // метрів — "влучання" (пів-знімка)
+    const TOTAL_ROUNDS = 5;
+
+    let round = 0, score = 0;
+    let answer = null, guess = null;
+    let guessMarker = null, answerMarker = null, line = null;
+    let phase = 'guessing';        // 'guessing' | 'revealed'
+
+    const statusEl = document.getElementById('status');
+    const scoreEl  = document.getElementById('score');
+    const btn      = document.getElementById('btn');
+
+    function startRound() {
+        // очистити попереднє
+        [guessMarker, answerMarker, line].forEach(l => l && guessMap.removeLayer(l));
+        guessMarker = answerMarker = line = guess = null;
+        phase = 'guessing';
+
         const [lat, lng] = randomPointInKyiv();
-        satMap.setView([lat, lng], 18);                 // знімок на цю точку
-        if (debugMarker) guessMap.removeLayer(debugMarker);
-        debugMarker = L.marker([lat, lng]).addTo(guessMap); // ПОКИ показуємо, для тесту
-        console.log('Точка раунду:', lat.toFixed(5), lng.toFixed(5));
+        answer = [lat, lng];
+        satMap.setView([lat, lng], 18);
+
+        round++;
+        statusEl.textContent = `Раунд ${round} / ${TOTAL_ROUNDS} — клікніть на карті, де це місце`;
+        btn.textContent = 'Перевірити';
+        btn.disabled = true;       // поки не клікнув
     }
+
+    // клік 
+    guessMap.on('click', e => {
+        if (phase !== 'guessing') return;
+        guess = [e.latlng.lat, e.latlng.lng];
+        if (guessMarker) guessMap.removeLayer(guessMarker);
+        guessMarker = L.marker(guess, { icon: guessIcon }).addTo(guessMap);
+        btn.disabled = false;
+    });
+
+    // кнопка: перевірити / далі
+    btn.addEventListener('click', () => {
+        if (phase === 'guessing') {
+            if (!guess) return;
+            const aLL = L.latLng(answer[0], answer[1]);
+            const gLL = L.latLng(guess[0], guess[1]);
+            const dist = Math.round(aLL.distanceTo(gLL));   // метри
+
+            answerMarker = L.marker(answer, { icon: answerIcon }).addTo(guessMap);
+            line = L.polyline([guess, answer], { color: '#555', weight: 2, dashArray: '5,6' }).addTo(guessMap);
+            guessMap.fitBounds(L.latLngBounds([guess, answer]).pad(0.5));
+
+            const hit = dist <= HIT_RADIUS;
+            if (hit) score++;
+            scoreEl.textContent = `Рахунок: ${score}`;
+            statusEl.textContent = hit
+                ? `✅ ${dist} м до центру`
+                : `❌ — ${dist} м до правильного місця`;
+
+            phase = 'revealed';
+            btn.textContent = round >= TOTAL_ROUNDS ? 'Підсумок' : 'Наступний раунд';
+            btn.disabled = false;
+        } else {
+            // revealed -> далі
+            if (round >= TOTAL_ROUNDS) {
+                statusEl.textContent = `Результат: ${score} / ${TOTAL_ROUNDS}`;
+                btn.textContent = 'Грати знову';
+                btn.disabled = false;
+                phase = 'gameover';
+            } else {
+                startRound();
+            }
+        }
+    });
+
+    // "Грати знову"
+    btn.addEventListener('click', () => {
+        if (phase === 'gameover') {
+            round = 0; score = 0;
+            scoreEl.textContent = 'Рахунок: 0';
+            startRound();
+        }
+    });
 
     fetch('kyiv.geojson')
         .then(r => r.json())
@@ -119,7 +217,7 @@
             guessMap.fitBounds(b);
             kyivBounds = [[b.getSouth(), b.getWest()], [b.getNorth(), b.getEast()]];
             console.log('Межі Києва завантажено');
-            newRound();   // перша точка
+            startRound();   // перша точка
         })
         .catch(() => console.log('kyiv.geojson не знайдено'));
 </script>
