@@ -8593,6 +8593,14 @@
               "wikipedia": "uk:Київ"
             }
           }
+        ]
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          30.5241361,
+          50.4500336
+        ]
       },
       "id": "node/26150422"
     }
