@@ -39,10 +39,19 @@
             position: fixed; inset: 0; z-index: 2000; background: rgba(0, 0, 0, 0.75);
             backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center;
         }
+
+        /* Напівпрозорий фон для фінального модального вікна, щоб було видно карту */
+        .modal-overlay.end-overlay {
+            background: rgba(0, 0, 0, 0.35);
+            backdrop-filter: none;
+            pointer-events: none;
+        }
+
         .modal {
             background: #1f2937; border: 1px solid rgba(255, 255, 255, 0.1);
             padding: 32px; border-radius: 24px; width: 90%; max-width: 440px; text-align: center;
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+            pointer-events: auto;
         }
         .modal h1 { margin-top: 0; font-size: 24px; color: #fff; }
         .modal p { color: #9ca3af; font-size: 14px; line-height: 1.5; }
@@ -81,9 +90,9 @@
             <div class="form-group">
                 <label for="rounds-select">Кількість раундів у грі:</label>
                 <select id="rounds-select">
-                    <option value="5" selected>5 раундів (Швидка гра)</option>
-                    <option value="10">10 раундів (Стандарт)</option>
-                    <option value="15">15 раундів (Марафон)</option>
+                    <option value="5" selected>5 раундів</option>
+                    <option value="10">10 раундів</option>
+                    <option value="15">15 раундів</option>
                 </select>
             </div>
 
@@ -103,8 +112,8 @@
                     <div class="stat-label">Ваш результат</div>
                 </div>
                 <div class="stat-card">
-                    <div id="end-avg-dist" class="stat-value">0м</div>
-                    <div class="stat-label">Сер. промах</div>
+                    <div id="end-accuracy" class="stat-value">0%</div>
+                    <div class="stat-label">Точність</div>
                 </div>
             </div>
 
@@ -164,10 +173,22 @@
     let answer = null, guess = null;
     let guessMarker = null, answerMarker = null, line = null;
     let phase = 'guessing';
-    let totalDistanceAccumulated = 0;
 
-    const guessIcon = L.divIcon({ html: '<div style="width:16px;height:16px;border-radius:50%;background:#3b82f6;border:3px solid #fff;box-shadow:0 0 6px rgba(0,0,0,.5);"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
-    const answerIcon = L.divIcon({ html: '<div style="width:16px;height:16px;border-radius:50%;background:#ef4444;border:3px solid #fff;box-shadow:0 0 6px rgba(0,0,0,.5);"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
+    // Історія та шари для фінальної карти
+    let gameHistory = [];
+    let summaryLayers = [];
+
+    // Прибрали квадрати під кружечками за допомогою className: ''
+    const guessIcon = L.divIcon({ 
+        className: '',
+        html: '<div style="width:16px;height:16px;border-radius:50%;background:#3b82f6;border:3px solid #fff;box-shadow:0 0 6px rgba(0,0,0,.5);"></div>', 
+        iconSize: [16, 16], iconAnchor: [8, 8] 
+    });
+    const answerIcon = L.divIcon({ 
+        className: '',
+        html: '<div style="width:16px;height:16px;border-radius:50%;background:#ef4444;border:3px solid #fff;box-shadow:0 0 6px rgba(0,0,0,.5);"></div>', 
+        iconSize: [16, 16], iconAnchor: [8, 8] 
+    });
 
     const HIT_RADIUS = 150; // метрів
 
@@ -189,18 +210,26 @@
             startBtn.disabled = false;
         });
 
+    function clearSummaryLayers() {
+        summaryLayers.forEach(l => guessMap.removeLayer(l));
+        summaryLayers = [];
+    }
+
     // Початок нової гри
     document.getElementById('start-btn').addEventListener('click', () => {
         totalRounds = parseInt(document.getElementById('rounds-select').value);
         document.getElementById('start-modal').style.display = 'none';
-        round = 0; score = 0; totalDistanceAccumulated = 0;
+        round = 0; score = 0; gameHistory = [];
+        clearSummaryLayers();
         scoreEl.textContent = `0 / ${totalRounds}`;
         startRound();
     });
 
-    // Рестарт після фіналу
+    // Рестарт
     document.getElementById('restart-btn').addEventListener('click', () => {
-        document.getElementById('end-modal').style.display = 'none';
+        const endModal = document.getElementById('end-modal');
+        endModal.style.display = 'none';
+        endModal.classList.remove('end-overlay');
         document.getElementById('start-modal').style.display = 'flex';
     });
 
@@ -231,13 +260,14 @@
         if (phase === 'guessing') {
             if (!guess) return;
             const dist = Math.round(L.latLng(answer).distanceTo(L.latLng(guess)));
-            totalDistanceAccumulated += dist;
+            const hit = dist <= HIT_RADIUS;
+
+            gameHistory.push({ roundNum: round, answer, guess, dist, hit });
 
             answerMarker = L.marker(answer, { icon: answerIcon }).addTo(guessMap);
             line = L.polyline([guess, answer], { color: '#9ca3af', weight: 2, dashArray: '6,6' }).addTo(guessMap);
             guessMap.fitBounds(L.latLngBounds([guess, answer]).pad(0.4));
 
-            const hit = dist <= HIT_RADIUS;
             if (hit) score++;
 
             scoreEl.textContent = `${score} / ${totalRounds}`;
@@ -256,19 +286,56 @@
 
     function showEndGameModal() {
         saveStats(score, totalRounds);
-        const avgDist = Math.round(totalDistanceAccumulated / totalRounds);
+        [guessMarker, answerMarker, line].forEach(l => l && guessMap.removeLayer(l));
 
-        // Присвоєння рангу
-        const percentage = (score / totalRounds) * 100;
+        const allCoords = [];
+
+        // карта з номерами
+        gameHistory.forEach(h => {
+            const gIcon = L.divIcon({
+                className: '',
+                html: `<div style="width:22px;height:22px;border-radius:50%;background:#3b82f6;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 0 6px rgba(0,0,0,.4);">${h.roundNum}</div>`,
+                iconSize: [22, 22], iconAnchor: [11, 11]
+            });
+
+            const aIcon = L.divIcon({
+                className: '',
+                html: `<div style="width:22px;height:22px;border-radius:50%;background:#ef4444;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 0 6px rgba(0,0,0,.4);">${h.roundNum}</div>`,
+                iconSize: [22, 22], iconAnchor: [11, 11]
+            });
+
+            const mG = L.marker(h.guess, { icon: gIcon }).addTo(guessMap);
+            const mA = L.marker(h.answer, { icon: aIcon }).addTo(guessMap);
+
+            const l = L.polyline([h.guess, h.answer], {
+                color: h.hit ? '#10b981' : '#f97316',
+                weight: 3,
+                dashArray: '6,6'
+            }).addTo(guessMap);
+
+            summaryLayers.push(mG, mA, l);
+            allCoords.push(h.guess, h.answer);
+        });
+
+        if (allCoords.length > 0) {
+            guessMap.fitBounds(L.latLngBounds(allCoords).pad(0.2));
+        }
+
+        // Розрахунок точності у відсотках
+        const percentage = Math.round((score / totalRounds) * 100);
+
         let rank = "Турист";
         if (percentage >= 80) rank = "Мешканець лівого берега";
         else if (percentage >= 50) rank = "Працівник уклону";
         else if (percentage >= 30) rank = "Віталій Кличко";
 
         document.getElementById('end-score').textContent = `${score} / ${totalRounds}`;
-        document.getElementById('end-avg-dist').textContent = `${avgDist} м`;
+        document.getElementById('end-accuracy').textContent = `${percentage}%`;
         document.getElementById('end-rank').textContent = rank;
-        document.getElementById('end-modal').style.display = 'flex';
+
+        const endModal = document.getElementById('end-modal');
+        endModal.classList.add('end-overlay');
+        endModal.style.display = 'flex';
     }
     </script>
 </body>
