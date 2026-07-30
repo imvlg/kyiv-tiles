@@ -15,6 +15,19 @@
         #satellite, #guessmap { position: absolute; inset: 0; }
         .divider { width: 4px; background: #374151; z-index: 400; }
 
+        /* Приціл у центрі супутникової карти */
+        #satellite::after {
+            content: '+';
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 28px;
+            font-weight: 300;
+            pointer-events: none;
+            z-index: 500;
+        }
+
         /* HUD */
         #hud {
             position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
@@ -40,7 +53,7 @@
             backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center;
         }
 
-        /* Напівпрозорий фон для фінального модального вікна, щоб було видно карту */
+        /* Напівпрозорий фон для фінального вікна */
         .modal-overlay.end-overlay {
             background: rgba(0, 0, 0, 0.35);
             backdrop-filter: none;
@@ -178,7 +191,6 @@
     let gameHistory = [];
     let summaryLayers = [];
 
-    // Прибрали квадрати під кружечками за допомогою className: ''
     const guessIcon = L.divIcon({ 
         className: '',
         html: '<div style="width:16px;height:16px;border-radius:50%;background:#3b82f6;border:3px solid #fff;box-shadow:0 0 6px rgba(0,0,0,.5);"></div>', 
@@ -190,7 +202,8 @@
         iconSize: [16, 16], iconAnchor: [8, 8] 
     });
 
-    const HIT_RADIUS = 150; // метрів
+    // Збільшено радіус влучання до 250м (покриває практично весь видимий кадр супутника)
+    const HIT_RADIUS = 250; 
 
     const statusEl = document.getElementById('status');
     const scoreEl = document.getElementById('score');
@@ -290,7 +303,7 @@
 
         const allCoords = [];
 
-        // карта з номерами
+        // Карта з номерами
         gameHistory.forEach(h => {
             const gIcon = L.divIcon({
                 className: '',
