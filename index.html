@@ -7,154 +7,175 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        * { box-sizing: border-box; }
-        body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
+        * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+        body { margin: 0; padding: 0; background: #111827; color: #f3f4f6; overflow: hidden; }
 
-        #game { display: flex; height: 100vh; }
+        #game { display: flex; height: 100vh; position: relative; }
         .panel { flex: 1; position: relative; }
         #satellite, #guessmap { position: absolute; inset: 0; }
-        .divider { width: 3px; background: #d0d0d0; }
+        .divider { width: 4px; background: #374151; z-index: 400; }
+
+        /* HUD */
+        #hud {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            z-index: 1000; background: rgba(17, 24, 39, 0.85);
+            backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 12px 24px; border-radius: 16px; display: flex; align-items: center;
+            gap: 20px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); min-width: 320px;
+        }
+        .status-text { font-size: 15px; font-weight: 500; }
+        .score-badge { background: #3b82f6; padding: 4px 12px; border-radius: 20px; font-weight: 600; font-size: 14px; }
+        
+        .btn-primary {
+            padding: 10px 20px; font-size: 14px; font-weight: 600; border: none;
+            border-radius: 10px; background: #2563eb; color: #fff; cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary:hover:not(:disabled) { background: #1d4ed8; transform: translateY(-1px); }
+        .btn-primary:disabled { background: #4b5563; cursor: not-allowed; opacity: 0.6; }
+
+        /* (Меню / Фінал / Статистика) */
+        .modal-overlay {
+            position: fixed; inset: 0; z-index: 2000; background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center;
+        }
+        .modal {
+            background: #1f2937; border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 32px; border-radius: 24px; width: 90%; max-width: 440px; text-align: center;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+        .modal h1 { margin-top: 0; font-size: 24px; color: #fff; }
+        .modal p { color: #9ca3af; font-size: 14px; line-height: 1.5; }
+        
+        .form-group { margin: 20px 0; text-align: left; }
+        .form-group label { display: block; font-size: 13px; color: #9ca3af; margin-bottom: 6px; }
+        .form-group select {
+            width: 100%; padding: 10px; border-radius: 8px; background: #374151;
+            border: 1px solid #4b5563; color: #fff; font-size: 14px; outline: none;
+        }
+
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 20px 0; }
+        .stat-card { background: #374151; padding: 12px; border-radius: 12px; text-align: center; }
+        .stat-value { font-size: 20px; font-weight: 700; color: #60a5fa; }
+        .stat-label { font-size: 11px; color: #9ca3af; text-transform: uppercase; margin-top: 4px; }
     </style>
 </head>
 <body>
-    <div id="game">
-        <div id="hud" style="position:fixed;bottom:0;left:0;right:0;z-index:1000;
-            background:rgba(255,255,255,.96);border-top:1px solid #ddd;
-            padding:10px 16px;display:flex;align-items:center;gap:16px;
-            font:14px system-ui,sans-serif;">
-            <span id="status">Завантаження точок...</span>
-            <button id="btn" disabled style="margin-left:auto;padding:8px 18px;font-size:14px;
-                border:none;border-radius:8px;background:#2c7fb8;color:#fff;cursor:pointer;">
-                Перевірити
-            </button>
-            <span id="score">Рахунок: 0</span>
-        </div>
-        <div class="panel">
-            <div id="satellite"></div>
-        </div>
-        <div class="divider"></div>
-        <div class="panel">
-            <div id="guessmap"></div>
+
+    <!-- Стартове вікно -->
+    <div id="start-modal" class="modal-overlay">
+        <div class="modal">
+            <h1>Kyiv Tiles</h1>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div id="stat-games" class="stat-value">0</div>
+                    <div class="stat-label">Зіграно ігор</div>
+                </div>
+                <div class="stat-card">
+                    <div id="stat-best" class="stat-value">0</div>
+                    <div class="stat-label">Рекорд</div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="rounds-select">Кількість раундів у грі:</label>
+                <select id="rounds-select">
+                    <option value="5" selected>5 раундів (Швидка гра)</option>
+                    <option value="10">10 раундів (Стандарт)</option>
+                    <option value="15">15 раундів (Марафон)</option>
+                </select>
+            </div>
+
+            <button id="start-btn" class="btn-primary" style="width: 100%; padding: 12px;" disabled>Завантаження точок...</button>
         </div>
     </div>
 
+    <!-- Фінальне вікно -->
+    <div id="end-modal" class="modal-overlay" style="display: none;">
+        <div class="modal">
+            <h1 id="end-title">Гра завершена</h1>
+            <p id="end-rank" style="font-weight: 600; color: #60a5fa; font-size: 16px; margin-bottom: 8px;"></p>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div id="end-score" class="stat-value">0/5</div>
+                    <div class="stat-label">Ваш результат</div>
+                </div>
+                <div class="stat-card">
+                    <div id="end-avg-dist" class="stat-value">0м</div>
+                    <div class="stat-label">Сер. промах</div>
+                </div>
+            </div>
+
+            <button id="restart-btn" class="btn-primary" style="width: 100%; padding: 12px;">Зіграти ще раз</button>
+        </div>
+    </div>
+
+    <!-- Основна гра -->
+    <div id="game">
+        <div id="hud">
+            <span id="status" class="status-text">Раунд 1</span>
+            <span id="score" class="score-badge">0</span>
+            <button id="btn" class="btn-primary" disabled style="margin-left: auto;">Перевірити</button>
+        </div>
+
+        <div class="panel"><div id="satellite"></div></div>
+        <div class="divider"></div>
+        <div class="panel"><div id="guessmap"></div></div>
+    </div>
+
     <script>
-    // === супутниковий знімок ===
+    // === карти ===
     const satMap = L.map('satellite', {
-        zoomControl: false, attributionControl: false,
-        dragging: false, scrollWheelZoom: false, doubleClickZoom: false,
-        boxZoom: false, keyboard: false, touchZoom: false
+        zoomControl: false, attributionControl: false, dragging: false,
+        scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false, keyboard: false, touchZoom: false
     }).setView([50.45, 30.52], 18);
 
-    L.tileLayer(
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        { maxZoom: 19 }
-    ).addTo(satMap);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(satMap);
 
-    // === OSM ===
     const guessMap = L.map('guessmap').setView([50.45, 30.52], 11);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap', maxZoom: 19
-    }).addTo(guessMap);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(guessMap);
 
-    // === csv ===
-    let goodPoints = [];
-
-    function randomPointInKyiv() {
-        const randomIndex = Math.floor(Math.random() * goodPoints.length);
-        return goodPoints[randomIndex];
+    // === СТАТИСТИКА (localStorage) ===
+    function getStats() {
+        return JSON.parse(localStorage.getItem('kyivTiles_stats')) || { gamesPlayed: 0, bestScore: 0 };
     }
 
-    // === маркери ===
-    const guessIcon = L.divIcon({
-        className: '',
-        html: '<div style="width:18px;height:18px;border-radius:50%;' +
-              'background:#2c7fb8;border:3px solid #fff;box-shadow:0 0 4px rgba(0,0,0,.5);"></div>',
-        iconSize: [18, 18], iconAnchor: [9, 9]
-    });
-    const answerIcon = L.divIcon({
-        className: '',
-        html: '<div style="width:18px;height:18px;border-radius:50%;' +
-              'background:#e6261f;border:3px solid #fff;box-shadow:0 0 4px rgba(0,0,0,.5);"></div>',
-        iconSize: [18, 18], iconAnchor: [9, 9]
-    });
+    function saveStats(score, totalRounds) {
+        const stats = getStats();
+        stats.gamesPlayed++;
+        if (score > stats.bestScore) stats.bestScore = score;
+        localStorage.setItem('kyivTiles_stats', JSON.stringify(stats));
+        updateStatsUI();
+    }
 
-    const HIT_RADIUS = 150; // метрів — радіус "влучання"
-    const TOTAL_ROUNDS = 5;
+    function updateStatsUI() {
+        const stats = getStats();
+        document.getElementById('stat-games').textContent = stats.gamesPlayed;
+        document.getElementById('stat-best').textContent = stats.bestScore;
+    }
+    updateStatsUI();
 
+    // === ЛОГІКА ГРИ ===
+    let goodPoints = [];
+    let totalRounds = 5;
     let round = 0, score = 0;
     let answer = null, guess = null;
     let guessMarker = null, answerMarker = null, line = null;
-    let phase = 'guessing'; // 'guessing' | 'revealed' | 'gameover'
+    let phase = 'guessing';
+    let totalDistanceAccumulated = 0;
+
+    const guessIcon = L.divIcon({ html: '<div style="width:16px;height:16px;border-radius:50%;background:#3b82f6;border:3px solid #fff;box-shadow:0 0 6px rgba(0,0,0,.5);"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
+    const answerIcon = L.divIcon({ html: '<div style="width:16px;height:16px;border-radius:50%;background:#ef4444;border:3px solid #fff;box-shadow:0 0 6px rgba(0,0,0,.5);"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
+
+    const HIT_RADIUS = 150; // метрів
 
     const statusEl = document.getElementById('status');
-    const scoreEl  = document.getElementById('score');
-    const btn      = document.getElementById('btn');
+    const scoreEl = document.getElementById('score');
+    const btn = document.getElementById('btn');
 
-    function startRound() {
-        // очистити попередні маркери
-        [guessMarker, answerMarker, line].forEach(l => l && guessMap.removeLayer(l));
-        guessMarker = answerMarker = line = guess = null;
-        phase = 'guessing';
-
-        const [lat, lng] = randomPointInKyiv();
-        answer = [lat, lng];
-        satMap.setView([lat, lng], 18);
-
-        round++;
-        statusEl.textContent = `Раунд ${round} / ${TOTAL_ROUNDS} — клікніть на карті, де це місце`;
-        btn.textContent = 'Перевірити';
-        btn.disabled = true; // блокуємо кнопку, поки гравець не клікне на карту
-    }
-
-    // Клік
-    guessMap.on('click', e => {
-        if (phase !== 'guessing') return;
-        guess = [e.latlng.lat, e.latlng.lng];
-        if (guessMarker) guessMap.removeLayer(guessMarker);
-        guessMarker = L.marker(guess, { icon: guessIcon }).addTo(guessMap);
-        btn.disabled = false;
-    });
-
-    // (Перевірити / Далі / Грати знову)
-    btn.addEventListener('click', () => {
-        if (phase === 'guessing') {
-            if (!guess) return;
-            const aLL = L.latLng(answer[0], answer[1]);
-            const gLL = L.latLng(guess[0], guess[1]);
-            const dist = Math.round(aLL.distanceTo(gLL)); // відстань у метрах
-
-            answerMarker = L.marker(answer, { icon: answerIcon }).addTo(guessMap);
-            line = L.polyline([guess, answer], { color: '#555', weight: 2, dashArray: '5,6' }).addTo(guessMap);
-            guessMap.fitBounds(L.latLngBounds([guess, answer]).pad(0.5));
-
-            const hit = dist <= HIT_RADIUS;
-            if (hit) score++;
-            scoreEl.textContent = `Рахунок: ${score}`;
-            statusEl.textContent = hit
-                ? `✅ ${dist} м до центру`
-                : `❌ — ${dist} м до правильного місця`;
-
-            phase = 'revealed';
-            btn.textContent = round >= TOTAL_ROUNDS ? 'Підсумок' : 'Наступний раунд';
-            btn.disabled = false;
-        } else if (phase === 'revealed') {
-            if (round >= TOTAL_ROUNDS) {
-                statusEl.textContent = `Результат: ${score} / ${TOTAL_ROUNDS}`;
-                btn.textContent = 'Грати знову';
-                btn.disabled = false;
-                phase = 'gameover';
-            } else {
-                startRound();
-            }
-        } else if (phase === 'gameover') {
-            round = 0; score = 0;
-            scoreEl.textContent = 'Рахунок: 0';
-            startRound();
-        }
-    });
-
-    // === точки з CSV ===
+    // Завантаження точок
     fetch('points.csv')
         .then(r => r.text())
         .then(text => {
@@ -163,13 +184,92 @@
                 return [parseFloat(parts[0]), parseFloat(parts[1])];
             }).filter(pt => !isNaN(pt[0]) && !isNaN(pt[1]));
 
-            console.log(`Завантажено ${goodPoints.length} точок!`);
-            startRound(); // Запускаємо гру після того, як файлик прочитався
-        })
-        .catch(err => {
-            console.error('Помилка завантаження points.csv:', err);
-            statusEl.textContent = 'Помилка завантаження файлу точок (points.csv)';
+            const startBtn = document.getElementById('start-btn');
+            startBtn.textContent = 'Почати гру';
+            startBtn.disabled = false;
         });
+
+    // Початок нової гри
+    document.getElementById('start-btn').addEventListener('click', () => {
+        totalRounds = parseInt(document.getElementById('rounds-select').value);
+        document.getElementById('start-modal').style.display = 'none';
+        round = 0; score = 0; totalDistanceAccumulated = 0;
+        scoreEl.textContent = `0 / ${totalRounds}`;
+        startRound();
+    });
+
+    // Рестарт після фіналу
+    document.getElementById('restart-btn').addEventListener('click', () => {
+        document.getElementById('end-modal').style.display = 'none';
+        document.getElementById('start-modal').style.display = 'flex';
+    });
+
+    function startRound() {
+        [guessMarker, answerMarker, line].forEach(l => l && guessMap.removeLayer(l));
+        guessMarker = answerMarker = line = guess = null;
+        phase = 'guessing';
+
+        const randomIndex = Math.floor(Math.random() * goodPoints.length);
+        answer = goodPoints[randomIndex];
+        satMap.setView(answer, 18);
+
+        round++;
+        statusEl.textContent = `Раунд ${round} з ${totalRounds}`;
+        btn.textContent = 'Перевірити';
+        btn.disabled = true;
+    }
+
+    guessMap.on('click', e => {
+        if (phase !== 'guessing') return;
+        guess = [e.latlng.lat, e.latlng.lng];
+        if (guessMarker) guessMap.removeLayer(guessMarker);
+        guessMarker = L.marker(guess, { icon: guessIcon }).addTo(guessMap);
+        btn.disabled = false;
+    });
+
+    btn.addEventListener('click', () => {
+        if (phase === 'guessing') {
+            if (!guess) return;
+            const dist = Math.round(L.latLng(answer).distanceTo(L.latLng(guess)));
+            totalDistanceAccumulated += dist;
+
+            answerMarker = L.marker(answer, { icon: answerIcon }).addTo(guessMap);
+            line = L.polyline([guess, answer], { color: '#9ca3af', weight: 2, dashArray: '6,6' }).addTo(guessMap);
+            guessMap.fitBounds(L.latLngBounds([guess, answer]).pad(0.4));
+
+            const hit = dist <= HIT_RADIUS;
+            if (hit) score++;
+
+            scoreEl.textContent = `${score} / ${totalRounds}`;
+            statusEl.textContent = hit ? `✅ (${dist} м)` : `❌ : ${dist} м`;
+
+            phase = 'revealed';
+            btn.textContent = round >= totalRounds ? 'Завершити' : 'Наступний раунд';
+        } else if (phase === 'revealed') {
+            if (round >= totalRounds) {
+                showEndGameModal();
+            } else {
+                startRound();
+            }
+        }
+    });
+
+    function showEndGameModal() {
+        saveStats(score, totalRounds);
+        const avgDist = Math.round(totalDistanceAccumulated / totalRounds);
+
+        // Присвоєння рангу
+        const percentage = (score / totalRounds) * 100;
+        let rank = "Турист";
+        if (percentage >= 80) rank = "Мешканець лівого берега";
+        else if (percentage >= 50) rank = "Працівник уклону";
+        else if (percentage >= 30) rank = "Віталій Кличко";
+
+        document.getElementById('end-score').textContent = `${score} / ${totalRounds}`;
+        document.getElementById('end-avg-dist').textContent = `${avgDist} м`;
+        document.getElementById('end-rank').textContent = rank;
+        document.getElementById('end-modal').style.display = 'flex';
+    }
     </script>
 </body>
 </html>
